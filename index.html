@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Lilypad GPU Status</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            /* Dark background */
+            color: #a7ffef;
+            /* lilypad green */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            color: #ffffff;
+            margin-top: 20px;
+        }
+
+        .filter-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .filter-container label {
+            color: #ffffff;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .filter-container select {
+            margin-right: 10px;
+            padding: 5px;
+            background-color: #000000;
+            color: #a7ffef;
+            border: 1px solid #a7ffef;
+        }
+
+        table {
+            width: 90%;
+            margin-top: 20px;
+            border-collapse: collapse;
+            box-shadow: 0 0 20px #a7ffef;
+            border-radius: 10px;
+            overflow: hidden;
+            max-height: 75vh;
+        }
+
+        th,
+        td {
+            padding: 15px;
+            text-align: left;
+            background-color: #000000;
+            border-radius: 5px;
+            box-shadow: 0 0 10px #a7ffef;
+            line-height: 1.6;
+        }
+
+        .online {
+            color: #a7ffef;
+        }
+
+        .offline {
+            color: #ff3d00;
+        }
+
+        .gpu-present {
+            font-weight: bold;
+        }
+
+        .gpu-icon {
+            margin-right: 10px;
+            color: #a7ffef;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Lilypad GPU Status</h1>
+    <div id="refreshStatus" style="position: fixed; top: 10px; right: 10px; color: white;">
+        <div id="spinner" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i> Refreshing...
+        </div>
+        <div id="countdown"></div>
+    </div>
+    <div class="filter-container">
+        <label for="filter-wallet">Wallet Address:</label>
+        <select id="filter-wallet" onchange="applyAllFilters()"></select>
+
+        <label for="filter-status">Status:</label>
+        <select id="filter-status" onchange="applyAllFilters()"></select>
+
+        <label for="filter-connected">Connected Since:</label>
+        <select id="filter-connected" onchange="applyAllFilters()"></select>
+
+        <label for="filter-gpu">GPU:</label>
+        <select id="filter-gpu" onchange="applyAllFilters()"></select>
+
+        <label for="filter-cpu">CPU:</label>
+        <select id="filter-cpu" onchange="applyAllFilters()"></select>
+
+        <label for="filter-ram">RAM:</label>
+        <select id="filter-ram" onchange="applyAllFilters()"></select>
+
+        <label for="filter-location">Location:</label>
+        <select id="filter-location" onchange="applyAllFilters()"></select>
+    </div>
+    <table id="uptime-status">
+        <thead>
+            <tr>
+                <th>Wallet Address</th>
+                <th>Status</th>
+                <th>Connected Since</th>
+                <th>GPU</th>
+                <th>CPU</th>
+                <th>RAM</th>
+                <th>Location</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <script>
+        let countdownTimer;
+        let refreshInterval = 30000; // 30 seconds
+
+        async function fetchUptimeData() {
+            showSpinner(true);
+            const tableBody = document.querySelector('#uptime-status tbody');
+            console.log("Fetching data...");
+            try {
+                const response = await fetch('https://api-testnet.lilypad.tech/metrics-dashboard/nodes');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+                }
+                const nodes = await response.json();
+                console.log("Data parsed:", nodes);
+
+                if (!nodes.length) {
+                    throw new Error("No nodes data returned or incorrect format.");
+                }
+
+                tableBody.innerHTML = '';
+                nodes.forEach(node => {
+                    const row = createNodeRow(node);
+                    tableBody.appendChild(row);
+                });
+
+                populateInitialDropdowns();  // Call after data is fetched and table is populated
+                applyAllFilters();  // Reapply filters to the new data
+
+            } catch (error) {
+                console.error('Fetch error:', error);
+                tableBody.innerHTML = `<tr><td colspan="7">Error loading data: ${error.message}. Please try again later.</td></tr>`;
+            } finally {
+                showSpinner(false);
+                startCountdown(refreshInterval); // Restart the countdown after fetching is complete
+            }
+        }
+
+        function startCountdown(duration) {
+            clearInterval(countdownTimer);  // Ensure no previous timer is running
+            let timer = duration / 1000; // Convert to seconds
+
+            updateCountdownDisplay(timer);  // Update immediately before starting interval
+
+            countdownTimer = setInterval(() => {
+                if (--timer < 0) {
+                    clearInterval(countdownTimer);
+                    document.getElementById('countdown').textContent = "Refreshing...";
+                    fetchUptimeData();  // Fetch data when countdown ends
+                } else {
+                    updateCountdownDisplay(timer);
+                }
+            }, 1000);
+        }
+
+        function updateCountdownDisplay(seconds) {
+            const minutes = parseInt(seconds / 60, 10);
+            const remainingSeconds = parseInt(seconds % 60, 10);
+            document.getElementById('countdown').textContent = `${pad(minutes)}:${pad(remainingSeconds)}`;
+        }
+
+        function pad(number) {
+            return number < 10 ? '0' + number : number;
+        }
+
+        function showSpinner(show) {
+            document.getElementById('spinner').style.display = show ? "block" : "none";
+            document.getElementById('countdown').style.display = show ? "none" : "block";
+        }
+
+        function createNodeRow(node) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td data-key="wallet">${node.ID}</td>
+                <td data-key="status">${node.Online ? 'Online' : 'Offline'}</td>
+                <td data-key="connected">${node.ConnectedSince ? new Date(node.ConnectedSince).toLocaleString() : 'N/A'}</td>
+                <td data-key="gpu">${node.GPU} ${node.GPU > 0 ? '(GPU Present)' : ''}</td>
+                <td data-key="cpu">${node.CPU}</td>
+                <td data-key="ram">${node.RAM}MB</td>
+                <td data-key="location">${node.CountryCode}</td>
+            `;
+            return row;
+        }
+
+        function populateDropdown(filterId, rows, key) {
+            const dropdown = document.getElementById(filterId);
+            const values = new Set(['All']);  // Start with 'All' as a default option
+
+            rows.forEach(row => {
+                const cell = row.querySelector(`td[data-key='${key}']`);
+                if (cell) {
+                    values.add(cell.textContent.trim());
+                }
+            });
+
+            const currentFilter = dropdown.value;
+            dropdown.innerHTML = '';  // Clear existing options
+            values.forEach(value => {
+                const option = document.createElement('option');
+                option.value = option.textContent = value;
+
+                // Set 'Online' as selected only on the first load for 'Status' dropdown
+                if (filterId === 'filter-status' && value === 'Online' && !dropdown.initiated) {
+                    option.selected = true;
+                } else {
+                    option.selected = value === currentFilter;
+                }
+                dropdown.appendChild(option);
+            });
+
+            // Mark the dropdown as initiated to avoid resetting the filter on subsequent data loads
+            if (filterId === 'filter-status') {
+                dropdown.initiated = true;
+            }
+        }
+
+
+        // Make sure the initial population is done correctly
+        function populateInitialDropdowns() {
+            const allRows = document.querySelectorAll('#uptime-status tbody tr');
+            ['wallet', 'status', 'connected', 'gpu', 'cpu', 'ram', 'location'].forEach(key => {
+                populateDropdown(`filter-${key}`, allRows, key);
+            });
+        }
+
+        function applyAllFilters() {
+            console.log("Applying filters...");
+            const filters = {
+                wallet: document.getElementById('filter-wallet').value.toLowerCase(),
+                status: document.getElementById('filter-status').value.toLowerCase(),
+                connected: document.getElementById('filter-connected').value.toLowerCase(),
+                gpu: document.getElementById('filter-gpu').value.toLowerCase(),
+                cpu: document.getElementById('filter-cpu').value.toLowerCase(),
+                ram: document.getElementById('filter-ram').value.toLowerCase(),
+                location: document.getElementById('filter-location').value.toLowerCase(),
+            };
+
+            const rows = document.querySelectorAll('#uptime-status tbody tr');
+            rows.forEach(row => {
+                let visible = true;
+                Object.keys(filters).forEach(key => {
+                    const columnValue = row.querySelector(`td[data-key='${key}']`).textContent.toLowerCase();
+                    if (filters[key] !== 'all' && !columnValue.includes(filters[key])) {
+                        visible = false;
+                    }
+                });
+                row.style.display = visible ? '' : 'none';
+            });
+            updateDropdownsBasedOnVisibility();
+        }
+
+        function updateDropdownsBasedOnVisibility() {
+            const visibleRows = document.querySelectorAll('#uptime-status tbody tr:not([style*="display: none"])');
+            ['wallet', 'status', 'connected', 'gpu', 'cpu', 'ram', 'location'].forEach(key => {
+                populateDropdown(`filter-${key}`, visibleRows, key);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('select').forEach(select => {
+                select.addEventListener('change', applyAllFilters);
+            });
+
+            fetchUptimeData();
+        });
+
+        setInterval(fetchUptimeData, refreshInterval);
+    </script>
+</body>
+
+</html>
